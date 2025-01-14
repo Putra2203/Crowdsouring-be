@@ -1,17 +1,23 @@
 const express = require("express");
-const Report = require("../models/Report");
 const multer = require("multer");
-const bucket = require("../config/firebase-config");
-const mongoose = require("mongoose");
+const {
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
+} = require("firebase/storage");
+const storage = require("../config/firebase-config.js");
+const Report = require("../models/Report.js");
 const authenticateToken = require("../middlewares/auth");
 
 const router = express.Router();
 
 const upload = multer({
-  storage: multer.memoryStorage(), 
-  limits: { fileSize: 5 * 1024 * 1024 }, 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
 });
 
+// POST: Membuat laporan baru
 router.post("/", upload.single("image"), async (req, res) => {
   try {
     const { user_id, location, water_level, description } = req.body;
@@ -21,25 +27,23 @@ router.post("/", upload.single("image"), async (req, res) => {
     }
 
     const fileName = `reports/${Date.now()}_${req.file.originalname}`;
-    const file = bucket.file(fileName);
+    const fileRef = ref(storage, fileName);
 
     // Upload file ke Firebase Storage
-    await file.save(req.file.buffer, {
-      metadata: {
-        contentType: req.file.mimetype,
-      },
+    await uploadBytes(fileRef, req.file.buffer, {
+      contentType: req.file.mimetype,
     });
 
-    const image_url = `https://firebasestorage.googleapis.com/v0/b/${
-      bucket.name
-    }/o/${encodeURIComponent(fileName)}?alt=media`;
+    // Dapatkan URL download untuk file yang diupload
+    const imageUrl = await getDownloadURL(fileRef);
 
+    // Simpan laporan ke database
     const newReport = new Report({
       user_id,
       location: JSON.parse(location),
       water_level,
       description,
-      image_url,
+      image_url: imageUrl,
     });
 
     await newReport.save();
@@ -53,6 +57,7 @@ router.post("/", upload.single("image"), async (req, res) => {
   }
 });
 
+// GET: Mendapatkan semua laporan
 router.get("/", async (req, res) => {
   try {
     const reports = await Report.find().populate("user_id", "name email");
@@ -62,6 +67,7 @@ router.get("/", async (req, res) => {
   }
 });
 
+// GET: Mendapatkan laporan berdasarkan user_id
 router.get("/user/:user_id", authenticateToken, async (req, res) => {
   try {
     const { user_id } = req.params;
@@ -88,6 +94,7 @@ router.get("/user/:user_id", authenticateToken, async (req, res) => {
   }
 });
 
+// PUT: Memperbarui laporan
 router.put(
   "/:report_id",
   authenticateToken,
@@ -107,30 +114,26 @@ router.put(
         return res.status(403).json({ error: "Unauthorized access!" });
       }
 
-      let newImageUrl = report.image_url; 
+      let newImageUrl = report.image_url;
       if (req.file) {
         const newFileName = `reports/${Date.now()}_${req.file.originalname}`;
-        const newFile = bucket.file(newFileName);
+        const newFileRef = ref(storage, newFileName);
 
-        await newFile.save(req.file.buffer, {
-          metadata: {
-            contentType: req.file.mimetype,
-          },
+        await uploadBytes(newFileRef, req.file.buffer, {
+          contentType: req.file.mimetype,
         });
 
         if (report.image_url) {
           const oldFileName = decodeURIComponent(
             report.image_url.split("/o/")[1].split("?")[0]
           );
-          const oldFile = bucket.file(oldFileName);
-          await oldFile.delete().catch((err) => {
+          const oldFileRef = ref(storage, oldFileName);
+          await deleteObject(oldFileRef).catch((err) => {
             console.error("Error deleting old image:", err.message);
           });
         }
 
-        newImageUrl = `https://firebasestorage.googleapis.com/v0/b/${
-          bucket.name
-        }/o/${encodeURIComponent(newFileName)}?alt=media`;
+        newImageUrl = await getDownloadURL(newFileRef);
       }
 
       report.location = location ? JSON.parse(location) : report.location;
@@ -152,9 +155,10 @@ router.put(
   }
 );
 
+// DELETE: Menghapus laporan
 router.delete("/:report_id", authenticateToken, async (req, res) => {
   try {
-    const { report_id } = req.params; 
+    const { report_id } = req.params;
 
     const report = await Report.findById(report_id);
 
@@ -166,9 +170,9 @@ router.delete("/:report_id", authenticateToken, async (req, res) => {
       const fileName = decodeURIComponent(
         report.image_url.split("/o/")[1].split("?")[0]
       );
-      const file = bucket.file(fileName);
+      const fileRef = ref(storage, fileName);
 
-      await file.delete().catch((err) => {
+      await deleteObject(fileRef).catch((err) => {
         console.error("Error deleting image from Firebase:", err.message);
       });
     }
@@ -185,6 +189,7 @@ router.delete("/:report_id", authenticateToken, async (req, res) => {
   }
 });
 
+// GET: Mendapatkan laporan di sekitar lokasi
 router.get("/nearby", async (req, res) => {
   try {
     const { longitude, latitude, maxDistance } = req.query;
