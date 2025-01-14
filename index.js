@@ -8,7 +8,7 @@ const reportsRoute = require("./routes/reports");
 const app = express();
 connectDB();
 
-app.use(cors())
+app.use(cors());
 app.use(bodyParser.json());
 
 app.use("/api/users", usersRoute);
