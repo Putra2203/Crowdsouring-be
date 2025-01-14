@@ -8,7 +8,13 @@ const reportsRoute = require("./routes/reports");
 const app = express();
 connectDB();
 
-app.use(cors());
+const corsOrigin = {
+  origin: "*",
+  credentials: true,
+  optionSuccessStatus: 200,
+};
+app.use(cors(corsOrigin));
+
 app.use(bodyParser.json());
 
 app.use("/api/users", usersRoute);
