@@ -10,7 +10,7 @@ connectDB();
 
 // Konfigurasi CORS
 app.use(cors({
-  origin: "https://crowdsourcing-banjir-fe-production.up.railway.app",
+  origin: "*",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"], 
 }));
